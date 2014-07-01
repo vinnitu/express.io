@@ -56,7 +56,7 @@ express.application.io = (options) ->
     @io.configure => @io.set 'authorization', (data, next) =>
         on_auth = @io.get("on_auth") or (data, cb) -> do cb
         
-        on_auth data, (accept) ->
+        on_auth data, (accept) =>
             return next null, true if accept
             
             unless sessionConfig.store?
