@@ -54,35 +54,47 @@ express.application.io = (options) ->
             for key, value of next
                 @router["#{route}:#{key}"] = value
     @io.configure => @io.set 'authorization', (data, next) =>
-        unless sessionConfig.store?
-            return async.forEachSeries @io.middleware, (callback, next) ->
-                callback(data, next)
-            , (error) ->
+        on_auth = @io.get("on_auth") or (data, cb) -> do cb
+        
+        on_auth data, (accept) ->
+            return next null, true if accept
+            
+            unless sessionConfig.store?
+                return async.forEachSeries @io.middleware, (callback, next) ->
+                    callback(data, next)
+                , (error) ->
+                    return next error if error?
+                    next null, true
+                
+            on_session = @io.get("on_session") or (session, cb) -> do cb
+                
+            cookieParser = express.cookieParser()
+            cookieParser data, null, (error) ->
                 return next error if error?
-                next null, true
-        cookieParser = express.cookieParser()
-        cookieParser data, null, (error) ->
-            return next error if error?
-            rawCookie = data.cookies[sessionConfig.key]
-            unless rawCookie?
-                request = headers: cookie: data.query.cookie
-                return cookieParser request, null, (error) ->
-                    data.cookies = request.cookies
-                    rawCookie = data.cookies[sessionConfig.key]
-                    return next "No cookie present", false unless rawCookie?
-                    sessionId = connect.utils.parseSignedCookie rawCookie, sessionConfig.secret
-                    data.sessionID = sessionId
-                    sessionConfig.store.get sessionId, (error, session) ->
+                rawCookie = data.cookies[sessionConfig.key]
+                unless rawCookie?
+                    request = headers: cookie: data.query.cookie
+                    return cookieParser request, null, (error) ->
+                        data.cookies = request.cookies
+                        rawCookie = data.cookies[sessionConfig.key]
+                        return next "No cookie present", false unless rawCookie?
+                        sessionId = connect.utils.parseSignedCookie rawCookie, sessionConfig.secret
+                        data.sessionID = sessionId
+                        sessionConfig.store.get sessionId, (error, session) ->
+                            return next error if error?
+                            on_session session, (error) ->
+                                return next error if error?
+                                data.session = new connect.session.Session data, session
+                                next null, true
+                    
+                sessionId = connect.utils.parseSignedCookie rawCookie, sessionConfig.secret
+                data.sessionID = sessionId
+                sessionConfig.store.get sessionId, (error, session) ->
+                    return next error if error?
+                    on_session session, (error) ->
                         return next error if error?
                         data.session = new connect.session.Session data, session
                         next null, true
-                    
-            sessionId = connect.utils.parseSignedCookie rawCookie, sessionConfig.secret
-            data.sessionID = sessionId
-            sessionConfig.store.get sessionId, (error, session) ->
-                return next error if error?
-                data.session = new connect.session.Session data, session
-                next null, true
 
     @io.use = (callback) =>
         @io.middleware.push callback
